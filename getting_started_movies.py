@@ -3,6 +3,7 @@ from decimal import Decimal
 from typing import Any
 
 import boto3
+from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
 logger = logging.getLogger(__name__)
@@ -213,6 +214,81 @@ class Movies:
         else:
             return response["Attributes"]
 
+    def query_movies(self, year):
+        """
+        Queries for movies that were released in the specified year.
+
+        :param year: The year to query
+        :return: The list of movies that were released in the specified year.
+        """
+        try:
+            response = self.table.query(KeyConditionExpression=Key("year").eq(year))
+        except ClientError as err:
+            logger.error(
+                "Couldn't query movies from table %s. Here's why: %s: %s",
+                year,
+                err.response["Error"]["Code"],
+                err.response["Error"]["Message"],
+            )
+            raise
+        else:
+            return response["Items"]
+
+    def scan_movies(self, year_range):
+        """
+        Scans for movies that were released in a range of years.
+        Uses a projection expression to return a subset of data for each movie.
+
+        :param year_range: The range of years to retrieve.
+        :return: The list of movies released in the specified years
+        """
+        movies = []
+        scan_kwargs = {
+            "FilterExpression": Key("year").between(
+                year_range["start"], year_range["end"]
+            ),
+            "ProjectionExpression": "#yr, title, info.rating",
+            "ExpressionAttributeNames": {"#yr": "year"}
+        }
+        try:
+            done = False
+            start_key = None
+            while not done:
+                if start_key:
+                    scan_kwargs["ExclusiveStartKey"] = start_key
+                response = self.table.scan(**scan_kwargs)
+                movies.extend(response.get("Items", []))
+                start_key = response.get("LastEvaluatedKey", None)
+                done = start_key is None
+        except ClientError as err:
+            logger.error(
+                "Couldn't scan movies from table %s. Here's why: %s: %s",
+                self.table.name,
+                err.response["Error"]["Code"],
+                err.response["Error"]["Message"],
+            )
+            raise
+        return movies
+
+    def delete_movie(self, title, year):
+        """
+        Deletes a movie from the table.
+
+        :param title: The title of the movie to delete
+        :param year: The release year of the movie to delete
+        """
+        try:
+            self.table.delete_item(Key={"year": year, "title": title})
+        except ClientError as err:
+            logger.error(
+                "Couldn't delete movie %s from table %s. Here's why: %s: %s",
+                title,
+                self.table.name,
+                err.response["Error"]["Code"],
+                err.response["Error"]["Message"],
+            )
+            raise
+
     def delete_table(self):
         """
         Deletes the table
@@ -238,9 +314,34 @@ if __name__ == "__main__":
         table_name = "movies"
 
         if movies.exist(table_name):
-            print(f"Table {table_name} exists.")
-            movies.add_movie("The Big New Movie", 2015, "Nothing happens at all", 0.0)
-            movies.add_movie("Star wars", 1977, "A long time ago in a galaxy far, far away...", 5.0)
+            # movies.add_movie("The Big New Movie", 2015, "Nothing happens at all", 0.0)
+            # movie = movies.get_movie("The Big New Movie", 2015)
+            # print(movie)
+            # movies.delete_movie("The Big New Movie", 2015)
+            # scanned_movies = movies.scan_movies({"start": 1950, "end": 2015})
+            # print(f"Movie: {scanned_movies}")
+            # movies.add_movie("Star wars", 1977, "A long time ago in a galaxy far, far away...", 5.0)
+            write_batch = [
+                {
+                    "year": 1999,
+                    "title": "The Matrix",
+                    "info": {
+                        "plot": "A computer hacker learns about the true nature of reality and his role in the war "
+                                "against its controllers.",
+                        "rating": Decimal("8.7")
+                    }
+                },
+                {
+                    "year": 1994,
+                    "title": "The Shawshank Redemption",
+                    "info": {
+                        "plot": "Two imprisoned",
+                        "rating": Decimal("8.7")
+                    }
+                }
+
+            ]
+            movies.write_batch(write_batch)
         else:
             print(f"Table {table_name} does not exist. Creating table...")
             movies.create_table(table_name)
