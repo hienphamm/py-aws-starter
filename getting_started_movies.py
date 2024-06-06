@@ -138,6 +138,7 @@ class Movies:
         :param rating: The quanlity rating of the movie
         """
         try:
+            logger.info("Adding movie %s to table %s", title, self.table.name)
             self.table.put_item(
                 Item={
                     "year": year,
@@ -235,10 +236,13 @@ if __name__ == "__main__":
         dyn_resource = boto3.resource("dynamodb")
         movies = Movies(dyn_resource)
         table_name = "movies"
-        # if not movies.exist(table_name):
-        #     table = movies.create_table(table_name)
-        #     print(f"Table status: {table.table_status}")
-        # else:
-        #     print(f"Table {table_name} exists.")
+
+        if movies.exist(table_name):
+            print(f"Table {table_name} exists.")
+            movies.add_movie("The Big New Movie", 2015, "Nothing happens at all", 0.0)
+            movies.add_movie("Star wars", 1977, "A long time ago in a galaxy far, far away...", 5.0)
+        else:
+            print(f"Table {table_name} does not exist. Creating table...")
+            movies.create_table(table_name)
     except Exception as e:
         print(f"Something went wrong: {e}")
